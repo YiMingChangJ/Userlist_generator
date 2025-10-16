@@ -192,11 +192,15 @@ python UserList_generator.py --teams 6 --size 2 --out users.xlsx
 Output columns:
 
 ```
-TraderID, Password
-A1BC-1, water
-A1BC-2, water
-J9Q0-1, cloud
-J9Q0-2, cloud
+| TraderID | Password |
+| -------- | -------- |
+| A1BC-1   | water    |
+| A1BC-2   | water    |
+| J9Q0-1   | cloud    |
+| J9Q0-2   | cloud    |
+| KP0P-1   | tide     |
+| KP0P-2   | tide     |
+
 ...
 ```
 
@@ -209,9 +213,15 @@ python UserList_generator.py --teams 6 --size 2 --names participants.csv --out u
 Output columns:
 
 ```
-TraderID, First Name, Last Name, Password
-T005-1, Elizabeth, Hsu, water
-T005-2, Isaac, Jung, water
+| TraderID | First Name | Last Name | Password |
+| -------- | ---------- | --------- | -------- |
+| T005-1   | Elizabeth  | Hsu       | water    |
+| T005-2   | Isaac      | Jung      | water    |
+| X125-1   | Po-Tsun    | Chen      | bear     |
+| X125-2   | Zian       | Chen      | bear     |
+| DEG6-1   | Rohan      | Kapoor    | cloudy   |
+| DEG6-2   | Palash     | Shah      | cloudy   |
+
 ...
 ```
 

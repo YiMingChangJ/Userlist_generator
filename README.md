@@ -200,7 +200,6 @@ Output columns:
 | J9Q0-2   | cloud    |
 | KP0P-1   | tide     |
 | KP0P-2   | tide     |
-
 ...
 ```
 
@@ -221,7 +220,6 @@ Output columns:
 | X125-2   | Zian       | Chen      | bear     |
 | DEG6-1   | Rohan      | Kapoor    | cloudy   |
 | DEG6-2   | Palash     | Shah      | cloudy   |
-
 ...
 ```
 

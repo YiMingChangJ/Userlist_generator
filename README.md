@@ -130,7 +130,7 @@ python UserList_generator.py --teams 12 --size 2 --out users.xlsx --autofill-nam
 
   * Example: if `--size 4`, then rows 1–4 are Team 1, rows 5–8 are Team 2, etc.
 
-**CSV example**
+**CSV/Xslx example**
 
 ```csv
 First Name,Last Name

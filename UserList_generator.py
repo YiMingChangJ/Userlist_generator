@@ -25,14 +25,12 @@ CLI examples:
   python user_generator.py --teams 10 --size 2 --out userlist.csv --autofill-names --seed 123  # (optional)
 """
 
-
 import argparse
 import hashlib
 import random
 import string
 from pathlib import Path
 from typing import Optional, List
-
 import pandas as pd
 
 # Simple, lowercase dictionary for passwords (no caps/symbols/spaces)
@@ -41,7 +39,6 @@ _SIMPLE_WORDS = [
     "apple", "dream", "stone", "river", "sun", "moon", "forest", "ocean", "sand", "leaf",
     "fire", "cloud", "tree", "field", "plain", "hill", "breeze", "storm", "snow", "rainy"
 ]
-
 
 def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Rename headers to 'First Name' and 'Last Name' if they look like first/last."""
@@ -58,7 +55,6 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 
     return df.rename(columns=colmap)[["First Name", "Last Name"]]
 
-
 def _read_names(names_path: str | Path) -> pd.DataFrame:
     p = Path(names_path)
     if not p.exists():
@@ -68,7 +64,6 @@ def _read_names(names_path: str | Path) -> pd.DataFrame:
     else:
         df = pd.read_csv(p)
     return _normalize_columns(df)
-
 
 def _hash_to_alpha_num(h: str) -> str:
     """Map hex string to an A–Z0–9 string; first char guaranteed to be a letter."""
@@ -81,7 +76,6 @@ def _hash_to_alpha_num(h: str) -> str:
         s += pool[int(h[i:i + 2], 16) % len(pool)]
     return s
 
-
 def _make_team_id(seed_text: str, used: set[str]) -> str:
     """Deterministically create a unique 4-char TeamID that starts with a letter."""
     counter = 0
@@ -92,7 +86,6 @@ def _make_team_id(seed_text: str, used: set[str]) -> str:
             used.add(code)
             return code
         counter += 1
-
 
 def _password_for_team(seed_text: str) -> str:
     """Deterministically choose a simple lowercase word based on team seed."""
@@ -113,7 +106,6 @@ def _autofill_names(n: int, rng: random.Random) -> pd.DataFrame:
     ]
     rows = [(rng.choice(firsts), rng.choice(lasts)) for _ in range(n)]
     return pd.DataFrame(rows, columns=["First Name", "Last Name"])
-
 
 def generate_users(
     n_teams: int,
@@ -188,7 +180,6 @@ def generate_users(
 
     return out_df
 
-
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Generate user roster for teams.")
     p.add_argument("--teams", type=int, required=True, help="Number of teams")
@@ -201,7 +192,6 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--autofill-names", action="store_true",
                    help="If no names file is provided, generate placeholder names (optional).")
     return p.parse_args()
-
 
 if __name__ == "__main__":
     args = _parse_args()

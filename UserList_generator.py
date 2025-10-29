@@ -1,216 +1,240 @@
+#!/usr/bin/env python3
+"""
+UserList_generator.py  —  Enforces:
+- TeamID: 4-char alphanumeric code, must start with a letter, unique per team
+- TraderID: "{TEAMID}-{i}" with i starting at 1 for each team
+
+Outputs:
+  1) --out  (TraderList): TraderID, Password, First Name, Last Name
+  2) --out2 (TeamList)  : TeamID,  Password, First Name, Last Name  (one row per person)
+
+Usage (with your BU sheet):
+    python UserList_generator.py  --names "BU_MSMFT_TeamList.xlsx"  --team-col "Team"   --first-col "First Name"   --last-col "Last Name"   --out "TraderList.xlsx"   --out2 "TeamList.xlsx
+  python UserList_generator.py --names BU_MSMFT_TeamList.xlsx \
+    --team-col "Team" --first-col "First Name" --last-col "Last Name" \
+    --out TraderList.xlsx --out2 TeamList.xlsx
+"""
+
 from __future__ import annotations
-"""
-Rotman International Trading Competition (RITC) User List Generator
-Rotman BMO Finance Research and Trading Lab, Uniersity of Toronto (C)
-All rights reserved.
-"""
-
-"""
-User Generator
---------------
-Generates login rosters for teams.
-
-Default behavior:
-- If no names file is provided, output only: TraderID, Password
-- If a names file (CSV/XLSX) is provided, output: TraderID, First Name, Last Name, Password
-
-Rules:
-- TeamID: 4-character alphanumeric code, must start with a letter, unique per team
-- TraderID: "{TEAMID}-{i}" (i starts at 1 for each team)
-- Password: simple lowercase word; same for all members in a team
-
-CLI examples:
-  python user_generator.py --teams 10 --size 2 --out userlist.xlsx
-  python user_generator.py --teams 10 --size 2 --names participants.xlsx --out userlist.xlsx
-  python user_generator.py --teams 10 --size 2 --out userlist.csv --autofill-names --seed 123  # (optional)
-"""
-
 
 import argparse
-import hashlib
-import random
-import string
-from pathlib import Path
-from typing import Optional, List
-
+from typing import Optional, List, Tuple, Dict
 import pandas as pd
+import random
+import hashlib
 
-# Simple, lowercase dictionary for passwords (no caps/symbols/spaces)
-_SIMPLE_WORDS = [
-    "water", "bear", "cloudy", "rain", "windy", "wave", "spark", "loud", "tide", "earth",
-    "apple", "dream", "stone", "river", "sun", "moon", "forest", "ocean", "sand", "leaf",
-    "fire", "cloud", "tree", "field", "plain", "hill", "breeze", "storm", "snow", "rainy"
-]
+# ---------- IO helpers ----------
+def _read_excel_any(path: str, sheet: Optional[str], all_sheets: bool) -> pd.DataFrame:
+    if all_sheets:
+        sheets = pd.read_excel(path, sheet_name=None)
+        dfs = []
+        for name, df in sheets.items():
+            if df is None or df.empty:
+                continue
+            df["__sheet__"] = str(name)
+            dfs.append(df)
+        if not dfs:
+            raise ValueError("No non-empty worksheets found.")
+        return pd.concat(dfs, ignore_index=True)
+    if sheet:
+        return pd.read_excel(path, sheet_name=sheet)
+    return pd.read_excel(path)
 
+def _read_names(path: str, sheet: Optional[str], all_sheets: bool) -> pd.DataFrame:
+    p = path.lower()
+    if p.endswith((".xlsx", ".xls")):
+        return _read_excel_any(path, sheet=sheet, all_sheets=all_sheets)
+    if p.endswith(".csv"):
+        return pd.read_csv(path)
+    raise ValueError("Names file must be .xlsx/.xls or .csv")
 
 def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Rename headers to 'First Name' and 'Last Name' if they look like first/last."""
-    colmap = {}
-    for c in df.columns:
-        lc = str(c).strip().lower()
-        if lc in {"first", "first name", "firstname", "given", "given name"}:
-            colmap[c] = "First Name"
-        elif lc in {"last", "last name", "lastname", "family", "surname"}:
-            colmap[c] = "Last Name"
+    def norm(c: str) -> str:
+        c = str(c).strip().lower().replace("_", " ")
+        return " ".join(c.split())
+    out = df.copy()
+    out.columns = [norm(c) for c in out.columns]
+    return out
 
-    if "First Name" not in colmap.values() or "Last Name" not in colmap.values():
-        raise ValueError("Names file must have two columns for first and last names (any reasonable spelling).")
+def _trim_strings(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    for col in out.columns:
+        if out[col].dtype == object:
+            out[col] = out[col].astype(str).str.strip()
+    return out
 
-    return df.rename(columns=colmap)[["First Name", "Last Name"]]
+def _find_by_keywords(df: pd.DataFrame, keywords: List[str]) -> Optional[str]:
+    for kw in keywords:
+        for c in df.columns:
+            if kw in c:
+                return c
+    return None
 
+def _resolve_columns(df: pd.DataFrame,
+                     team_col_arg: Optional[str],
+                     first_col_arg: Optional[str],
+                     last_col_arg: Optional[str]) -> Tuple[str, str, str]:
+    def normalize_name(name: str) -> str:
+        return " ".join(name.strip().lower().replace("_", " ").split())
+    def pick_exact(arg: Optional[str]) -> Optional[str]:
+        if not arg:
+            return None
+        want = normalize_name(arg)
+        for c in df.columns:
+            if c == want:
+                return c
+        raise ValueError(f"Column '{arg}' not found. Available columns: {list(df.columns)}")
+    col_team  = pick_exact(team_col_arg)
+    col_first = pick_exact(first_col_arg)
+    col_last  = pick_exact(last_col_arg)
+    if col_first is None:
+        col_first = _find_by_keywords(df, ["first name","firstname","first","given"])
+    if col_last is None:
+        col_last  = _find_by_keywords(df, ["last name","lastname","last","surname","family name","family"])
+    if col_team is None:
+        col_team  = _find_by_keywords(df, ["teamid","team id","team code","team#","team #","team no","team number","team"])
+    if not (col_team and col_first and col_last):
+        raise ValueError(
+            "Could not detect Team / First / Last columns.\n"
+            f"Columns seen: {list(df.columns)}\n"
+            "Tip: pass --team-col, --first-col, --last-col with your exact headers."
+        )
+    return col_team, col_first, col_last
 
-def _read_names(names_path: str | Path) -> pd.DataFrame:
-    p = Path(names_path)
-    if not p.exists():
-        raise FileNotFoundError(f"Names file not found: {p}")
-    if p.suffix.lower() in {".xlsx", ".xls"}:
-        df = pd.read_excel(p)
-    else:
-        df = pd.read_csv(p)
-    return _normalize_columns(df)
+# ---------- ID & password helpers ----------
+_BASE36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
+def _to_base36(n: int) -> str:
+    if n == 0:
+        return "0"
+    s = []
+    while n > 0:
+        n, r = divmod(n, 36)
+        s.append(_BASE36[r])
+    return "".join(reversed(s))
 
-def _hash_to_alpha_num(h: str) -> str:
-    """Map hex string to an A–Z0–9 string; first char guaranteed to be a letter."""
-    letters = string.ascii_uppercase
-    digits = "0123456789"
-    idx0 = int(h[:2], 16) % len(letters)  # first must be a letter
-    s = letters[idx0]
-    pool = letters + digits
-    for i in range(2, 8, 2):
-        s += pool[int(h[i:i + 2], 16) % len(pool)]
-    return s
-
-
-def _make_team_id(seed_text: str, used: set[str]) -> str:
-    """Deterministically create a unique 4-char TeamID that starts with a letter."""
-    counter = 0
+def _team_code_4(label: str, used: set[str]) -> str:
+    """
+    Deterministically map arbitrary team label -> 4-char alphanumeric code:
+    - starts with a letter
+    - unique across teams (resolve collisions by incrementing salt)
+    """
+    salt = 0
     while True:
-        base_hash = hashlib.md5((seed_text + f"#{counter}").encode()).hexdigest()
-        code = _hash_to_alpha_num(base_hash)[:4]
-        if code not in used and code[0].isalpha():
-            used.add(code)
-            return code
-        counter += 1
-
+        data = f"{label}::{salt}".encode("utf-8", "ignore")
+        digest = hashlib.sha1(data).digest()
+        n = int.from_bytes(digest, "big")
+        code = _to_base36(n).upper()
+        # keep only alnum, take 4
+        code = "".join(ch for ch in code if ch.isalnum())
+        if len(code) < 4:
+            code = (code + "AAAA")[:4]
+        else:
+            code = code[:4]
+        if not code[0].isalpha():
+            salt += 1
+            continue
+        if code in used:
+            salt += 1
+            continue
+        used.add(code)
+        return code
 
 def _password_for_team(seed_text: str) -> str:
-    """Deterministically choose a simple lowercase word based on team seed."""
-    h = int(hashlib.sha1(seed_text.encode()).hexdigest(), 16)
-    return _SIMPLE_WORDS[h % len(_SIMPLE_WORDS)]
+    words = ["wave","cloudy","apple","rain","earth","spark","dream","tide","bear","windy"]
+    idx = int(hashlib.sha1(seed_text.encode()).hexdigest(), 16) % len(words)
+    return words[idx]
 
-
-def _autofill_names(n: int, rng: random.Random) -> pd.DataFrame:
-    """Create placeholder names if user opts in."""
-    firsts = [
-        "Alex", "Jamie", "Taylor", "Jordan", "Casey", "Riley", "Avery", "Morgan", "Charlie", "Sam",
-        "Quinn", "Rowan", "Eden", "Kai", "Remy", "Skye", "Noah", "Liam", "Emma", "Olivia",
-        "Ethan", "Mia", "Ava", "Isla", "Leo", "Zoe", "Maya", "Ivy", "Mila"
-    ]
-    lasts = [
-        "Chen", "Wang", "Singh", "Gupta", "Patel", "Brown", "Davis", "Garcia", "Rodriguez", "Martinez",
-        "Hernandez", "Kim", "Park", "Nguyen", "Tran", "Khan", "Hsu", "Liu", "Zhang", "Ma", "Li", "Cui", "Gao"
-    ]
-    rows = [(rng.choice(firsts), rng.choice(lasts)) for _ in range(n)]
-    return pd.DataFrame(rows, columns=["First Name", "Last Name"])
-
-
+# ---------- main ----------
 def generate_users(
-    n_teams: int,
-    team_size: int,
-    names_path: Optional[str] = None,
-    out_path: str = "users.csv",
+    names_path: str,
+    out_path: str,
+    out_path_team: str,
+    team_col_arg: Optional[str],
+    first_col_arg: Optional[str],
+    last_col_arg: Optional[str],
+    sheet: Optional[str],
+    all_sheets: bool,
     seed: Optional[int] = None,
-    autofill_names: bool = False
-) -> pd.DataFrame:
-    """
-    Generate the roster and write it to CSV/Excel based on `out_path` extension.
+) -> None:
+    random.seed(seed)
 
-    - If `names_path` is None and `autofill_names` is False:
-        Output columns = TraderID, Password
-    - If `names_path` is provided (or autofill_names is True):
-        Output columns = TraderID, First Name, Last Name, Password
-    """
-    if n_teams <= 0 or team_size <= 0:
-        raise ValueError("n_teams and team_size must be positive integers.")
+    raw = _read_names(names_path, sheet=sheet, all_sheets=all_sheets)
+    df = _trim_strings(_normalize_columns(raw))
 
-    rng = random.Random(seed)
-    total = n_teams * team_size
+    col_team, col_first, col_last = _resolve_columns(df, team_col_arg, first_col_arg, last_col_arg)
 
-    have_names = False
-    if names_path:
-        df_names = _read_names(names_path)
-        if len(df_names) < total:
-            raise ValueError(f"Names file has {len(df_names)} rows but needs at least {total}.")
-        df_names = df_names.iloc[:total].reset_index(drop=True)
-        have_names = True
-    elif autofill_names:
-        df_names = _autofill_names(total, rng)
-        have_names = True
-    else:
-        df_names = None  # no names case
+    # Clean & validate rows
+    df = df[(df[col_team].notna()) & ((df[col_first].notna()) | (df[col_last].notna()))].copy()
 
-    used_team_ids: set[str] = set()
-    out_rows: List[list] = []
+    # Build deterministic 4-char TeamID codes per *original* team label
+    used_codes: set[str] = set()
+    team_code_map: Dict[str, str] = {}
+    for orig_team_label in df[col_team].astype(str).unique():
+        team_code_map[orig_team_label] = _team_code_4(orig_team_label, used_codes)
 
-    for t in range(n_teams):
-        # Build a deterministic seed text (with or without names)
-        if have_names:
-            block = df_names.iloc[t * team_size : (t + 1) * team_size]
-            seed_text = "|".join(f"{r['First Name']} {r['Last Name']}" for _, r in block.iterrows())
-        else:
-            seed_text = f"team#{t}-size{team_size}"
+    # Build outputs
+    trader_rows: List[List[str]] = []
+    team_rows:   List[List[str]] = []
 
-        team_id = _make_team_id(seed_text, used_team_ids)
-        password = _password_for_team(seed_text)
+    for orig_team_label, members in df.groupby(col_team, sort=False):
+        team_code = team_code_map[str(orig_team_label)]
+        # Password is team-based, seeded on member names (deterministic)
+        seed_txt = "|".join((members[col_first].fillna("") + " " + members[col_last].fillna("")).astype(str))
+        password = _password_for_team(seed_txt if seed_txt else str(team_code))
+        # Emit everyone
+        for i, (_, r) in enumerate(members.iterrows(), start=1):
+            first = str(r.get(col_first, "") or "").strip()
+            last  = str(r.get(col_last,  "") or "").strip()
+            trader_id = f"{team_code}-{i}"
+            trader_rows.append([trader_id, password, first, last])
+            team_rows.append([team_code,  password, first, last])
 
-        for i in range(1, team_size + 1):
-            trader_id = f"{team_id}-{i}"
-            if have_names:
-                fn = str(df_names.iloc[t * team_size + (i - 1)]["First Name"])
-                ln = str(df_names.iloc[t * team_size + (i - 1)]["Last Name"])
-                out_rows.append([trader_id, fn, ln, password])
-            else:
-                out_rows.append([trader_id, password])
+    # DataFrames with required column order
+    df_trader = pd.DataFrame(trader_rows, columns=["TraderID","Password","First Name","Last Name"])
+    df_team   = pd.DataFrame(team_rows,   columns=["TeamID","Password","First Name","Last Name"])
 
-    # Build DataFrame with correct columns
-    if have_names:
-        out_df = pd.DataFrame(out_rows, columns=["TraderID", "First Name", "Last Name", "Password"])
-    else:
-        out_df = pd.DataFrame(out_rows, columns=["TraderID", "Password"])
-
-    # Save file based on extension
-    out_path = str(out_path)
+    # Save
     if out_path.lower().endswith(".xlsx"):
-        out_df.to_excel(out_path, index=False)  # requires openpyxl
+        df_trader.to_excel(out_path, index=False)
     else:
-        out_df.to_csv(out_path, index=False)
+        df_trader.to_csv(out_path, index=False)
 
-    return out_df
+    if out_path_team.lower().endswith(".xlsx"):
+        df_team.to_excel(out_path_team, index=False)
+    else:
+        df_team.to_csv(out_path_team, index=False)
 
+    print(f"TraderList saved → {out_path}  (rows={len(df_trader)})")
+    print(f"TeamList   saved → {out_path_team}  (rows={len(df_team)})")
+    # Optional: show first few mappings
+    preview = list(team_code_map.items())[:10]
+    print("[info] Team code preview:", preview)
 
+# ---------- CLI ----------
 def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Generate user roster for teams.")
-    p.add_argument("--teams", type=int, required=True, help="Number of teams")
-    p.add_argument("--size", type=int, required=True, help="Members per team")
-    p.add_argument("--names", type=str, default=None,
-                   help="Optional CSV/XLSX with two columns (First/Last names). Grouped in blocks of --size.")
-    p.add_argument("--out", type=str, default="users.csv",
-                   help="Output path (.csv or .xlsx). Extension selects the format.")
-    p.add_argument("--seed", type=int, default=None, help="Optional seed for reproducibility")
-    p.add_argument("--autofill-names", action="store_true",
-                   help="If no names file is provided, generate placeholder names (optional).")
+    p = argparse.ArgumentParser(description="Generate TraderList/TeamList with 4-char TeamID codes and TraderID = TEAMID-i.")
+    p.add_argument("--names", required=True, help="Path to Excel/CSV with Team + First + Last columns.")
+    p.add_argument("--out",  default="TraderList.xlsx", help="Trader output file")
+    p.add_argument("--out2", default="TeamList.xlsx",   help="Team output file")
+    p.add_argument("--team-col",  type=str, default=None, help="Exact team column header (e.g., 'Team')")
+    p.add_argument("--first-col", type=str, default=None, help="Exact first-name column header (e.g., 'First Name')")
+    p.add_argument("--last-col",  type=str, default=None, help="Exact last-name column header (e.g., 'Last Name')")
+    p.add_argument("--sheet",     type=str, default=None, help="Worksheet name to read (Excel only)")
+    p.add_argument("--all-sheets", action="store_true", help="Read and combine all worksheets")
+    p.add_argument("--seed", type=int, default=None, help="Random seed (affects deterministic password pick)")
     return p.parse_args()
-
 
 if __name__ == "__main__":
     args = _parse_args()
-    df = generate_users(
-        n_teams=args.teams,
-        team_size=args.size,
+    generate_users(
         names_path=args.names,
         out_path=args.out,
+        out_path_team=args.out2,
+        team_col_arg=args.team_col,
+        first_col_arg=args.first_col,
+        last_col_arg=args.last_col,
+        sheet=args.sheet,
+        all_sheets=args.all_sheets,
         seed=args.seed,
-        autofill_names=args.autofill_names
     )
-    print(f"Saved {len(df)} rows to {args.out}")

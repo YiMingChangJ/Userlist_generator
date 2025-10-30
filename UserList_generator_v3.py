@@ -16,7 +16,7 @@ Outputs:
   3) --out3  (RegistrationList)  [unchanged format]
 
 Usage (example):
-  python UserList_generator.py --names BU_MSMFT_TeamList.xlsx --team-col "Team" --first-col "First Name" --last-col "Last Name" --email-col "BU Email" --out TraderList.xlsx --out2 TeamList.xlsx --out3 RegistrationList.xlsx --admin-count 2 --admin-prefix FRTL
+  python UserList_generator_v3.py --names BU_MSMFT_TeamList.xlsx --team-col "Team" --first-col "First Name" --last-col "Last Name" --email-col "BU Email" --out TraderList.xlsx --out2 TeamList.xlsx --out3 RegistrationList.xlsx --admin-count 2 --admin-prefix FRTL
 """
 
 from __future__ import annotations

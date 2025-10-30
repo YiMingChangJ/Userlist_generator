@@ -1,24 +1,22 @@
 #!/usr/bin/env python3
 """
-UserList_generator.py
+UserList_generator.py (v4)
 
-Outputs three files:
-  1) --out   (TraderList): TraderID, Password, First Name, Last Name
-  2) --out2  (TeamList)  : TeamID,  Password, First Name, Last Name   (one row per person)
-  3) --out3  (RegistrationList):
-       Team #, Team Name, Team Code, Individual Trader ID, Password, Email Address,
-       First Name, Last Name, Home School / College,
-       Please enter your information - Primary Degree,
-       Please enter your information - Expected Graduation Year,
-       Are you?, Registering for
+Changes:
+- TraderList columns: TraderID, First Name, Last Name, Password (Password in column D)
+- TeamList   columns: TeamID,  First Name, Last Name, Password (Password in column D)
+  * TeamList is de-duplicated: ONE row per TeamID (names left blank)
+- Admin accounts: create FRTL-1, FRTL-2, ... with distinct passwords
+  * --admin-count N (default 0), --admin-prefix FRTL (default)
+  * Appended to TraderList; TeamList includes one row for the admin TeamID
 
-Requirements:
-- Names file (Excel/CSV) must contain team + first + last columns (email optional).
-- TeamID is generated as a 4-char alphanumeric code (starts with a letter), unique per team.
-- TraderID is "{TEAMID}-{i}" with i starting at 1 per team.
+Outputs:
+  1) --out   (TraderList)
+  2) --out2  (TeamList)
+  3) --out3  (RegistrationList)  [unchanged format]
 
-Usage (BU screenshot headers):
-  python UserList_generator_v3.py --names BU_MSMFT_TeamList.xlsx --team-col "Team" --first-col "First Name" --last-col "Last Name" --email-col "BU Email" --out TraderList.xlsx --out2 TeamList.xlsx --out3 RegistrationList.xlsx
+Usage (example):
+  python UserList_generator.py --names BU_MSMFT_TeamList.xlsx --team-col "Team" --first-col "First Name" --last-col "Last Name" --email-col "BU Email" --out TraderList.xlsx --out2 TeamList.xlsx --out3 RegistrationList.xlsx --admin-count 2 --admin-prefix FRTL
 """
 
 from __future__ import annotations
@@ -66,7 +64,6 @@ def _trim_strings(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     for col in out.columns:
         if pd.api.types.is_object_dtype(out[col]) or pd.api.types.is_string_dtype(out[col]):
-            # Convert NaN to "", then strip whitespace safely
             out[col] = out[col].astype("string").fillna("").str.strip()
     return out
 
@@ -156,9 +153,16 @@ def _team_code_4(label: str, used: set[str]) -> str:
         return code
 
 def _password_for_team(seed_text: str) -> str:
-    words = ["wave","cloudy","apple","rain","earth","spark","dream","tide","bear","windy"]
+    words = ["wave","cloudy","apple","rain","earth","spark","dream","tide","bear","windy","stone", "river", "sun", "moon", "forest", "ocean", "sand", "leaf",
+    "fire", "cloud", "tree", "field", "plain", "hill", "breeze", "storm", "snow", "rainy"]
     idx = int(hashlib.sha1(seed_text.encode()).hexdigest(), 16) % len(words)
     return words[idx]
+
+def _password_unique(idx: int) -> str:
+    """Different-looking simple password per admin account."""
+    words = ["wave","cloudy","apple","rain","earth","spark","dream","tide","bear","windy","stone", "river", "sun", "moon", "forest", "ocean", "sand", "leaf",
+    "fire", "cloud", "tree", "field", "plain", "hill", "breeze", "storm", "snow", "rainy"]
+    return words[idx % len(words)] + str(100 + (idx % 900))
 
 # ---------- main ----------
 def generate_users(
@@ -172,6 +176,8 @@ def generate_users(
     email_col_arg: Optional[str],
     sheet: Optional[str],
     all_sheets: bool,
+    admin_count: int,
+    admin_prefix: str,
     seed: Optional[int] = None,
 ) -> None:
     random.seed(seed)
@@ -200,7 +206,7 @@ def generate_users(
     team_code_map: Dict[str, str] = {lbl: _team_code_4(lbl, used_codes) for lbl in ordered_labels}
 
     # Build outputs
-    trader_rows, team_rows, reg_rows = [], [], []
+    trader_rows, per_person_team_rows, reg_rows = [], [], []
 
     REG_COLS = [
         "Team #",
@@ -230,13 +236,13 @@ def generate_users(
             email = str(r.get(col_email, "") or "").strip() if col_email else ""
             trader_id = f"{team_code}-{i}"
 
-            # 1) TraderList
-            trader_rows.append([trader_id, password, first, last])
+            # 1) TraderList → (TraderID, First, Last, Password)  [Password at column D]
+            trader_rows.append([trader_id, first, last, password])
 
-            # 2) TeamList (one row per person)
-            team_rows.append([team_code, password, first, last])
+            # For TeamList (we will dedupe later):
+            per_person_team_rows.append([team_code, first, last, password])
 
-            # 3) RegistrationList
+            # 3) RegistrationList (unchanged)
             reg_rows.append([
                 team_no,                    # Team #
                 "",                         # Team Name (blank)
@@ -249,10 +255,59 @@ def generate_users(
                 "", "", "", "", ""          # Remaining blanks
             ])
 
-    # DataFrames with exact column order
-    df_trader = pd.DataFrame(trader_rows, columns=["TraderID","Password","First Name","Last Name"])
-    df_team   = pd.DataFrame(team_rows,   columns=["TeamID","Password","First Name","Last Name"])
-    df_reg    = pd.DataFrame(reg_rows,    columns=REG_COLS)
+    # ---- Admin accounts ----
+    # Add FRTL-1, FRTL-2, ...  with distinct simple passwords; names blank; email blank
+    if admin_count > 0:
+        admin_team_code = admin_prefix  # also 4-char + starts with letter as per your example
+        # Ensure admin team code is not colliding with generated 4-char codes
+        if admin_team_code in {c for c in team_code_map.values()}:
+            admin_team_code = admin_prefix[:3] + "A"  # small tweak if collision
+        # Generate N admin trader IDs
+        for i in range(1, admin_count + 1):
+            trader_id = f"{admin_team_code}-{i}"
+            pwd = _password_unique(i)  # different per admin
+            trader_rows.append([trader_id, "", "", pwd])
+            per_person_team_rows.append([admin_team_code, "", "", pwd])
+            # Registration row (optional; still add for completeness)
+            reg_rows.append([
+                0, "", admin_team_code, trader_id, pwd, "", "", "", "", "", "", "", ""
+            ])
+
+    # DataFrames with required column order (Password in column D)
+    df_trader = pd.DataFrame(trader_rows, columns=["TraderID","First Name","Last Name","Password"])
+
+    # ---- TeamList: de-dup by TeamID, keep the FIRST appearing member's name ----
+    df_team_people = pd.DataFrame(
+        per_person_team_rows, columns=["TeamID", "First Name", "Last Name", "Password"]
+    )
+    # Keep the first row per TeamID (preserves input order), including names
+    df_team = (
+        df_team_people
+        .groupby("TeamID", sort=False, as_index=False)
+        .first()[["TeamID", "First Name", "Last Name", "Password"]]   # ensure Password is col D
+    )
+
+    # match requested order: TeamID, First Name, Last Name, Password (with blank names)
+    # df_team["First Name"] = ""
+    # df_team["Last Name"]  = ""
+    df_team = df_team[["TeamID","First Name","Last Name","Password"]]
+
+    # Registration
+    df_reg = pd.DataFrame(reg_rows, columns=[
+        "Team #",
+        "Team Name",
+        "Team Code",
+        "Individual Trader ID",
+        "Password",
+        "Email Address",
+        "First Name",
+        "Last Name",
+        "Home School / College",
+        "Please enter your information - Primary Degree",
+        "Please enter your information - Expected Graduation Year",
+        "Are you?",
+        "Registering for",
+    ])
 
     # Save
     if out_path.lower().endswith(".xlsx"):
@@ -271,12 +326,12 @@ def generate_users(
         df_reg.to_csv(out_path_reg, index=False)
 
     print(f"✅ TraderList        → {out_path}   (rows={len(df_trader)})")
-    print(f"✅ TeamList          → {out_path_team} (rows={len(df_team)})")
+    print(f"✅ TeamList (dedup)  → {out_path_team} (teams={len(df_team)})")
     print(f"✅ RegistrationList  → {out_path_reg}  (rows={len(df_reg)})")
 
 # ---------- CLI ----------
 def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Generate Trader/Team/Registration lists with 4-char TeamIDs and TraderID = TEAMID-i.")
+    p = argparse.ArgumentParser(description="Generate Trader/Team/Registration lists, password in col D, TeamList deduped, with optional admin accounts.")
     p.add_argument("--names", required=True, help="Path to Excel/CSV with Team + First + Last columns (email optional).")
     p.add_argument("--out",  default="TraderList.xlsx", help="Trader output file")
     p.add_argument("--out2", default="TeamList.xlsx",   help="Team output file")
@@ -287,6 +342,8 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--email-col", type=str, default=None, help="Exact email column header (e.g., 'BU Email')")
     p.add_argument("--sheet",     type=str, default=None, help="Worksheet name to read (Excel only)")
     p.add_argument("--all-sheets", action="store_true", help="Read and combine all worksheets")
+    p.add_argument("--admin-count", type=int, default=0, help="How many admin accounts to create (FRTL-1, FRTL-2, ...)")
+    p.add_argument("--admin-prefix", type=str, default="FRTL", help="Admin team prefix (default FRTL)")
     p.add_argument("--seed", type=int, default=None, help="Random seed (affects deterministic password pick)")
     return p.parse_args()
 
@@ -303,5 +360,7 @@ if __name__ == "__main__":
         email_col_arg=args.email_col,
         sheet=args.sheet,
         all_sheets=args.all_sheets,
+        admin_count=args.admin_count,
+        admin_prefix=args.admin_prefix,
         seed=args.seed,
     )

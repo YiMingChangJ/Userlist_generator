@@ -9,7 +9,7 @@ Outputs:
   2) --out2 (TeamList)  : TeamID,  Password, First Name, Last Name  (one row per person)
 
 Usage (with your BU sheet):
-    python UserList_generator.py  --names "BU_MSMFT_TeamList.xlsx"  --team-col "Team"   --first-col "First Name"   --last-col "Last Name"   --out "TraderList.xlsx"   --out2 "TeamList.xlsx
+    python UserList_generator_v2.py  --names "BU_MSMFT_TeamList.xlsx"  --team-col "Team"   --first-col "First Name"   --last-col "Last Name"   --out "TraderList.xlsx"   --out2 "TeamList.xlsx
 """
 
 from __future__ import annotations

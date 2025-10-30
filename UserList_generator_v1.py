@@ -20,9 +20,9 @@ Rules:
 - Password: simple lowercase word; same for all members in a team
 
 CLI examples:
-  python UserList_generator.py --teams 10 --size 2 --out userlist.xlsx
-  python UserList_generator.py --teams 10 --size 2 --names participants.xlsx --out userlist.xlsx
-  python UserList_generator.py --teams 10 --size 2 --out userlist.csv --autofill-names --seed 123  # (optional)
+  python UserList_generator_v1.py --teams 10 --size 2 --out userlist.xlsx
+  python UserList_generator_v1.py --teams 10 --size 2 --names participants.xlsx --out userlist.xlsx
+  python UserList_generator_v1.py --teams 10 --size 2 --out userlist.csv --autofill-names --seed 123  # (optional)
 """
 
 

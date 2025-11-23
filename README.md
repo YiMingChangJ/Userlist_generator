@@ -15,12 +15,12 @@ Teammates share the **same simple lowercase password** (no caps/symbols).
 
 ## Features
 
-* 🔢 **Configurable team counts and team sizes**
-* 📄 **Optional names file** (CSV/XLSX) using flexible header spellings for first/last name
-* 🔐 **Simple, human-typeable passwords** (e.g., `water`, `cloudy`, `wave`)
-* 🧮 **Deterministic** TeamIDs and passwords from the input + optional `--seed`
-* 💾 **Saves as CSV or Excel** depending on output filename extension
-* 🧰 **CLI and Python API**
+* **Configurable team counts and team sizes**
+* **Optional names file** (CSV/XLSX) using flexible header spellings for first/last name
+* **Simple, human-typeable passwords** (e.g., `water`, `cloudy`, `wave`)
+* **Deterministic** TeamIDs and passwords from the input + optional `--seed`
+* **Saves as CSV or Excel** depending on output filename extension
+* **CLI and Python API**
 
 ---
 
